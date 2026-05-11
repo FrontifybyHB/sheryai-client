@@ -18,8 +18,13 @@ const DEMO_COURSE = 'demo-course-001';
 function buildVideoUrl(lesson) {
   if (!lesson) return '';
   if (lesson.videoUrl) return lesson.videoUrl;
+  if (lesson.source !== 'upload') return '';
   const id = lesson.lessonId || lesson.id;
   return `${API_DIRECT_URL}/api/lessons/${id}/video?role=student`;
+}
+
+function isLocalBrowser() {
+  return ['localhost', '127.0.0.1', '[::1]', '::1'].includes(window.location.hostname);
 }
 
 function SidebarLessonRow({ lesson, index, isActive, onClick }) {
@@ -163,6 +168,8 @@ export default function LessonPage() {
   const currentStatus = liveStatus || lesson?.status;
   const isReady = currentStatus === 'ready';
   const isYouTube = Boolean(lesson?.youtubeVideoId);
+  const hasLocalOnlyProductionVideo = lesson?.storagePath?.startsWith('local:') && !isLocalBrowser();
+  const canLoadUploadedVideo = !hasLocalOnlyProductionVideo && (Boolean(lesson?.videoUrl) || (lesson?.source === 'upload' && isReady));
   const readyCount = allLessons.filter((item) => item.status === 'ready').length;
   const pct = allLessons.length > 0 ? Math.round((readyCount / allLessons.length) * 100) : 0;
   const videoSrc = buildVideoUrl(lesson);
@@ -350,7 +357,12 @@ export default function LessonPage() {
                 allowFullScreen
                 className="block h-full w-full border-0 bg-black"
               />
-            ) : lesson?.videoUrl || lesson?.source === 'upload' ? (
+            ) : hasLocalOnlyProductionVideo ? (
+              <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-white/65">
+                <AppIcon name="alert" size={40} className="text-accent" />
+                <p className="max-w-[360px] text-[13px] leading-6">This uploaded video was stored on a local server disk and is no longer available in production. Re-upload it after cloud storage is configured.</p>
+              </div>
+            ) : canLoadUploadedVideo ? (
               <CustomVideoPlayer
                 ref={videoRef}
                 src={videoSrc}

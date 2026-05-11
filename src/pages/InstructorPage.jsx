@@ -70,6 +70,16 @@ export default function InstructorPage() {
       toast.success('Lesson created. Processing in background...');
       setYtForm((form) => ({ ...form, title: '', description: '', youtubeUrl: '' }));
     } catch (err) {
+      if (err.data?.details?.suggestedAction === 'upload_video') {
+        setUploadForm((form) => ({
+          ...form,
+          title: ytForm.title,
+          description: ytForm.description,
+          courseId: ytForm.courseId,
+          order: ytForm.order,
+        }));
+        setActiveTab('upload');
+      }
       toast.error(err.message || 'Failed to ingest lesson');
     }
   };
