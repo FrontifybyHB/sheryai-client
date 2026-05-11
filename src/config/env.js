@@ -1,5 +1,16 @@
 function normalizeUrl(value) {
-  return (value || '').trim().replace(/\/+$/, '');
+  const normalized = (value || '').trim().replace(/\/+$/, '');
+
+  if (!normalized) return '';
+  if (/\.railway\.internal(?::\d+)?(?:\/|$)/i.test(normalized)) return '';
+  if (/^\/\//.test(normalized)) return `https:${normalized}`;
+  if (/^\//.test(normalized)) return normalized;
+  if (/^https?:\/\//i.test(normalized)) return normalized;
+  if (/^(localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(normalized)) {
+    return `http://${normalized}`;
+  }
+
+  return `https://${normalized}`;
 }
 
 export const API_BASE_URL = normalizeUrl(
