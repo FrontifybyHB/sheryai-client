@@ -1,0 +1,441 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import Navbar from '../components/Navbar';
+import ChatPanel from '../components/ChatPanel';
+import CustomVideoPlayer from '../components/CustomVideoPlayer';
+import LessonStatusBadge from '../components/LessonStatusBadge';
+import VideoChapterBar from '../components/VideoChapterBar';
+import SubtitleOverlay, { SubtitleControls } from '../components/SubtitleOverlay';
+import { useSubtitles } from '../hooks/useSubtitles';
+import { useLessonQuery, useLessonsQuery, useRegenerateChaptersMutation } from '../api/lessonQueries';
+import { getLesson } from '../services/api';
+import { useLessonStatus } from '../hooks/useLessonStatus';
+import AppIcon from '../components/AppIcon';
+import { API_DIRECT_URL } from '../config/env';
+
+const DEMO_COURSE = 'demo-course-001';
+
+function buildVideoUrl(lesson) {
+  if (!lesson) return '';
+  if (lesson.videoUrl) return lesson.videoUrl;
+  const id = lesson.lessonId || lesson.id;
+  return `${API_DIRECT_URL}/api/lessons/${id}/video?role=student`;
+}
+
+function SidebarLessonRow({ lesson, index, isActive, onClick }) {
+  const isReady = lesson.status === 'ready';
+  return (
+    <button
+      type="button"
+      onClick={() => isReady && onClick(lesson)}
+      className={`flex w-full items-center gap-2.5 rounded-md border px-3.5 py-2.5 text-left transition ${
+        isActive
+          ? 'border-accent-border bg-accent-soft text-accent'
+          : isReady
+            ? 'border-transparent text-muted-text hover:bg-surface-hover hover:text-white'
+            : 'border-transparent text-muted'
+      }`}
+    >
+      <span
+        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
+          isActive
+            ? 'border-accent bg-accent text-white'
+            : isReady
+              ? 'border-green-500/30 bg-green-500/10 text-green-500'
+              : 'border-line bg-white/5 text-muted'
+        }`}
+      >
+        <AppIcon name={isActive ? 'play' : isReady ? 'check' : 'circle'} size={12} />
+      </span>
+      <span className="min-w-0 flex-1 truncate text-xs font-medium">
+        {index + 1} - {lesson.title}
+      </span>
+      {lesson.chunkCount > 0 && <span className="shrink-0 text-[10px] text-muted">{lesson.chunkCount}c</span>}
+    </button>
+  );
+}
+
+export default function LessonPage() {
+  const { lessonId } = useParams();
+  const navigate = useNavigate();
+
+  const [lesson, setLesson] = useState(null);
+  const [midTab, setMidTab] = useState('ai');
+  const [currentTime, setCurrentTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [videoError, setVideoError] = useState('');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [regeneratingChapters, setRegeneratingChapters] = useState(false);
+
+  const playerRef = useRef(null);
+  const pollRef = useRef(null);
+  const videoRef = useRef(null);
+  const currentTimeRef = useRef(0);
+  const autoRegenDone = useRef(false);
+  const lessonQuery = useLessonQuery(lessonId);
+  const lessonsQuery = useLessonsQuery(DEMO_COURSE);
+  const regenerateMutation = useRegenerateChaptersMutation(lessonId);
+  const allLessons = lessonsQuery.data?.lessons || [];
+  const loading = lessonQuery.isLoading || lessonsQuery.isLoading;
+
+  const { status: liveStatus } = useLessonStatus(lessonId, lesson?.status !== 'ready' && lesson?.status !== 'failed');
+
+  useEffect(() => {
+    if (lessonQuery.data?.lesson) setLesson(lessonQuery.data.lesson);
+  }, [lessonQuery.data]);
+
+  useEffect(() => {
+    if (liveStatus === 'ready' && lesson?.status !== 'ready') {
+      getLesson(lessonId).then((data) => setLesson(data.lesson)).catch(() => {});
+    }
+  }, [liveStatus, lesson?.status, lessonId]);
+
+  useEffect(() => {
+    const isReady = (liveStatus || lesson?.status) === 'ready';
+    if (!isReady || !lesson || autoRegenDone.current) return;
+    if ((lesson.topicSegments?.length ?? 0) <= 1) {
+      autoRegenDone.current = true;
+      regenerateMutation.mutateAsync()
+        .then((data) => {
+          if (data.topicSegments) setLesson((prev) => ({ ...prev, topicSegments: data.topicSegments }));
+        })
+        .catch(() => {});
+    }
+  }, [lesson?.status, liveStatus, lesson?.topicSegments?.length, lessonId]);
+
+  useEffect(() => {
+    if (lesson?.videoUrl || lesson?.status === 'failed' || lesson?.source !== 'upload') return;
+    const timer = setInterval(() => {
+      getLesson(lessonId)
+        .then((data) => {
+          if (data.lesson?.videoUrl) setLesson(data.lesson);
+        })
+        .catch(() => {});
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [lesson?.videoUrl, lesson?.source, lesson?.status, lessonId]);
+
+  useEffect(() => {
+    if (!lesson?.youtubeVideoId) return;
+    const handler = (event) => {
+      if (event.origin !== 'https://www.youtube.com') return;
+      try {
+        const data = JSON.parse(event.data);
+        if (data.event === 'infoDelivery' && data.info?.currentTime !== undefined) {
+          const t = data.info.currentTime;
+          currentTimeRef.current = t;
+          setCurrentTime(Math.floor(t));
+        }
+      } catch {}
+    };
+    window.addEventListener('message', handler);
+    pollRef.current = setInterval(() => {
+      playerRef.current?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'getCurrentTime', args: [] }), '*');
+    }, 500);
+    return () => {
+      window.removeEventListener('message', handler);
+      clearInterval(pollRef.current);
+    };
+  }, [lesson?.youtubeVideoId]);
+
+  const seekTo = useCallback(
+    (seconds) => {
+      if (lesson?.youtubeVideoId) {
+        playerRef.current?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [seconds, true] }), '*');
+      } else if (videoRef.current) {
+        videoRef.current.currentTime = seconds;
+        videoRef.current.play().catch(() => {});
+      }
+      setCurrentTime(seconds);
+      currentTimeRef.current = seconds;
+    },
+    [lesson?.youtubeVideoId]
+  );
+
+  const getVideoTime = useCallback(() => {
+    if (videoRef.current) return Math.floor(videoRef.current.currentTime || 0);
+    return currentTime;
+  }, [currentTime]);
+
+  const currentIdx = allLessons.findIndex((item) => item.id === lessonId || item.lessonId === lessonId);
+  const prevLesson = allLessons[currentIdx - 1];
+  const nextLesson = allLessons[currentIdx + 1];
+  const currentStatus = liveStatus || lesson?.status;
+  const isReady = currentStatus === 'ready';
+  const isYouTube = Boolean(lesson?.youtubeVideoId);
+  const readyCount = allLessons.filter((item) => item.status === 'ready').length;
+  const pct = allLessons.length > 0 ? Math.round((readyCount / allLessons.length) * 100) : 0;
+  const videoSrc = buildVideoUrl(lesson);
+
+  const subtitles = useSubtitles(lessonId, isYouTube ? null : videoRef, isYouTube ? currentTimeRef : null, isYouTube);
+
+  useEffect(() => {
+    setVideoError('');
+  }, [lessonId, lesson?.videoUrl, lesson?.source]);
+
+  if (loading) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-3 bg-surface-base">
+        <AppIcon name="loader" size={36} className="animate-spin text-accent" />
+        <p className="text-[13px] text-muted">Loading lesson...</p>
+      </main>
+    );
+  }
+
+  return (
+    <div className="flex h-screen max-h-screen min-h-0 flex-col overflow-hidden bg-surface-base">
+      <Navbar />
+
+      <main className={`grid min-h-0 flex-1 overflow-y-auto md:overflow-hidden ${sidebarCollapsed ? 'grid-cols-1 md:grid-cols-[52px_minmax(260px,0.9fr)_minmax(300px,1.1fr)]' : 'grid-cols-1 md:grid-cols-[240px_minmax(260px,0.9fr)_minmax(300px,1.1fr)]'}`}>
+        <aside className={`${sidebarCollapsed ? 'hidden md:flex' : 'flex'} min-h-[320px] min-w-0 flex-col overflow-hidden border-r border-line bg-surface-nav md:min-h-0`}>
+          <header className="border-b border-line p-4">
+            <div className="mb-3 flex items-center justify-between">
+              {!sidebarCollapsed && <Link to="/dashboard" className="text-xs font-medium text-muted-text">Back to course</Link>}
+              <button type="button" onClick={() => setSidebarCollapsed((value) => !value)} className="rounded-lg border border-line bg-surface-card px-2 py-1 text-xs text-muted">
+                {sidebarCollapsed ? 'Open' : 'Hide'}
+              </button>
+            </div>
+
+            {!sidebarCollapsed && (
+              <section className="rounded-xl border border-line bg-surface-card p-3.5">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-accent">{pct}% Complete</span>
+                  <span className="text-xs text-muted">{readyCount}/{allLessons.length}</span>
+                </div>
+                <progress value={pct} max="100" className="h-1.5 w-full accent-accent" />
+              </section>
+            )}
+          </header>
+
+          {!sidebarCollapsed && (
+            <div className="min-h-0 flex-1 overflow-y-auto p-2.5 pb-16 md:pb-2.5">
+              <div className="mb-2 flex items-center gap-2 px-1 text-[11px] font-bold uppercase tracking-wider text-muted">
+                <AppIcon name="book" size={13} /> Lessons <span className="ml-auto">{allLessons.length}</span>
+              </div>
+              <div className="flex flex-col gap-1">
+                {allLessons.map((item, index) => (
+                  <SidebarLessonRow
+                    key={item.id || item.lessonId}
+                    lesson={item}
+                    index={index}
+                    isActive={(item.id || item.lessonId) === lessonId}
+                    onClick={(next) => navigate(`/lesson/${next.id || next.lessonId}`)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </aside>
+
+        <section className="flex min-h-[440px] min-w-0 flex-col overflow-hidden border-r border-line bg-surface-base md:min-h-0">
+          <header className="flex shrink-0 items-center overflow-hidden border-b border-line bg-surface-nav px-3 sm:px-4">
+            <TabButton active={midTab === 'class'} onClick={() => setMidTab('class')} icon="circleDot">Class</TabButton>
+            <TabButton active={midTab === 'ai'} onClick={() => setMidTab('ai')} icon="bot">AI Tutor</TabButton>
+            <div className="ml-auto flex min-w-0 items-center gap-2 overflow-hidden">
+              <LessonStatusBadge status={currentStatus} chunkCount={lesson?.chunkCount || 0} />
+            </div>
+          </header>
+
+          {midTab === 'class' ? (
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-5 sm:py-6">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-bold leading-7 text-white">{lesson?.title}</h2>
+                  {lesson?.description && <p className="mt-1.5 text-[13px] leading-6 text-muted-text">{lesson.description}</p>}
+                </div>
+                {isReady && (
+                  <Link to={`/lesson/${lessonId}/quiz`} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white">
+                    <AppIcon name="brain" size={13} /> Quiz
+                  </Link>
+                )}
+              </div>
+
+              <div className="mb-5 flex flex-wrap gap-2">
+                <Pill icon={lesson?.source === 'youtube' ? 'video' : 'upload'}>{lesson?.source === 'youtube' ? 'YouTube' : 'Upload'}</Pill>
+                {lesson?.chunkCount > 0 && <Pill icon="bot">{lesson.chunkCount} AI chunks</Pill>}
+              </div>
+
+              {isReady && (
+                <section className="mb-6">
+                  <div className="mb-2.5 flex items-center justify-between">
+                    <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted">
+                      <AppIcon name="target" size={13} /> Chapters {lesson?.topicSegments?.length > 0 ? `(${lesson.topicSegments.length})` : ''}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setRegeneratingChapters(true);
+                        try {
+                          await regenerateMutation.mutateAsync();
+                          const data = await getLesson(lessonId);
+                          if (data.lesson) setLesson(data.lesson);
+                        } finally {
+                          setRegeneratingChapters(false);
+                        }
+                      }}
+                      disabled={regeneratingChapters}
+                      className="inline-flex items-center gap-1 rounded-md border border-accent-border bg-accent-soft px-2 py-1 text-[10px] font-semibold text-accent disabled:opacity-60"
+                    >
+                      <AppIcon name={regeneratingChapters ? 'loader' : 'refresh'} size={12} className={regeneratingChapters ? 'animate-spin' : ''} />
+                      {regeneratingChapters ? 'Generating...' : 'Regenerate'}
+                    </button>
+                  </div>
+                  {lesson?.topicSegments?.length > 0 ? (
+                    <div className="flex flex-col gap-1">
+                      {lesson.topicSegments.map((segment, index) => (
+                        <button
+                          key={`${segment.startTime}-${index}`}
+                          type="button"
+                          onClick={() => seekTo(segment.startTime)}
+                          className="flex items-center gap-2 rounded-lg border border-line bg-surface-card px-3 py-2 text-left transition hover:border-accent-border hover:bg-accent-soft"
+                        >
+                          <span className="shrink-0 font-mono text-[11px] text-accent">{segment.startLabel}</span>
+                          <span className="min-w-0 flex-1 truncate text-[13px] text-white">{segment.topic}</span>
+                          <AppIcon name="play" size={12} className="text-accent" />
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs italic text-muted">Chapters are being generated from the lecture transcript.</p>
+                  )}
+                </section>
+              )}
+
+              {!isReady && (
+                <section className="rounded-2xl border border-line bg-surface-card p-8 text-center">
+                  <AppIcon name="settings" size={24} className="mb-1.5 text-accent" />
+                  <p className="text-[13px] text-muted">AI is processing this lesson. The chat and chapters unlock when indexing is ready.</p>
+                </section>
+              )}
+
+              {lesson?.youtubeUrl && (
+                <a href={lesson.youtubeUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-line bg-surface-card px-3 py-2 text-[13px] text-muted-text">
+                  <AppIcon name="video" size={14} /> Open on YouTube
+                </a>
+              )}
+            </div>
+          ) : (
+            <div className="min-h-0 flex-1 overflow-hidden">
+              {isReady ? (
+                <ChatPanel lessonId={lessonId} lesson={lesson} onSeek={seekTo} getVideoTime={getVideoTime} />
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+                  <AppIcon name="bot" size={48} strokeWidth={1.8} className="text-accent" />
+                  <h3 className="text-lg font-bold text-white">AI Tutor preparing</h3>
+                  <p className="max-w-[320px] text-sm leading-6 text-muted">This lesson is still being transcribed and indexed.</p>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="flex min-h-[360px] min-w-0 flex-col overflow-hidden bg-black md:min-h-0">
+          <header className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-surface-nav px-3 py-2.5 sm:px-4 sm:py-3">
+            <div className="flex min-w-0 items-center gap-2 text-[13px] font-semibold text-white">
+              <AppIcon name="video" size={15} className="text-accent" /> Video Lecture
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {isReady && <Link to={`/lesson/${lessonId}/quiz`} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white">Quiz</Link>}
+              <SubtitleControls subtitles={subtitles} />
+            </div>
+          </header>
+
+          <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
+            {lesson?.youtubeVideoId ? (
+              <iframe
+                ref={playerRef}
+                src={`https://www.youtube.com/embed/${lesson.youtubeVideoId}?enablejsapi=1&origin=${window.location.origin}`}
+                title={lesson?.title || 'Lesson video'}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                className="block h-full w-full border-0 bg-black"
+              />
+            ) : lesson?.videoUrl || lesson?.source === 'upload' ? (
+              <CustomVideoPlayer
+                ref={videoRef}
+                src={videoSrc}
+                title={lesson?.title || 'Lesson video'}
+                onLoadedMetadata={(event) => {
+                  setVideoDuration(event.currentTarget.duration || 0);
+                  setVideoError('');
+                }}
+                onError={() => setVideoError('Video could not load. Check the backend video URL, storage access, or CORS response.')}
+                onTimeUpdate={(event) => {
+                  const t = Math.floor(event.currentTarget.currentTime);
+                  currentTimeRef.current = t;
+                  setCurrentTime(t);
+                }}
+              />
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center gap-3 text-white/50">
+                <AppIcon name="loader" size={44} className="animate-spin" />
+                <p className="text-[13px]">Preparing video...</p>
+              </div>
+            )}
+
+            {videoError && (
+              <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/85 p-5 text-center">
+                <div className="max-w-[360px] rounded-2xl border border-line bg-surface-card p-5 shadow-2xl">
+                  <AppIcon name="alert" size={28} className="mx-auto mb-3 text-accent" />
+                  <p className="text-sm font-semibold text-white">Video is not loading</p>
+                  <p className="mt-2 text-xs leading-5 text-muted-text">{videoError}</p>
+                  {videoSrc && (
+                    <a href={videoSrc} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center justify-center rounded-lg border border-accent-border bg-accent-soft px-3 py-2 text-xs font-semibold text-accent">
+                      Open video directly
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
+            <SubtitleOverlay subtitles={subtitles} />
+            <VideoChapterBar segments={lesson?.topicSegments || []} duration={videoDuration || lesson?.duration || 0} currentTime={currentTime} onSeek={seekTo} />
+          </div>
+        </section>
+      </main>
+
+      <footer className="flex shrink-0 items-center justify-between border-t border-line bg-surface-nav px-3 py-2.5 sm:px-5">
+        <button
+          type="button"
+          onClick={() => prevLesson && navigate(`/lesson/${prevLesson.id || prevLesson.lessonId}`)}
+          disabled={!prevLesson}
+          className="flex h-9 w-9 items-center justify-center rounded-full border border-line bg-surface-card text-white disabled:text-muted"
+        >
+          <AppIcon name="chevronLeft" size={18} />
+        </button>
+        <div className="mx-3 max-w-[46vw] truncate rounded-full border border-line bg-surface-card px-4 py-2 text-center text-xs text-muted-text sm:max-w-[460px] sm:px-5">{lesson?.title}</div>
+        <button
+          type="button"
+          onClick={() => nextLesson && navigate(`/lesson/${nextLesson.id || nextLesson.lessonId}`)}
+          disabled={!nextLesson}
+          className="flex h-9 w-9 rotate-180 items-center justify-center rounded-full border border-line bg-surface-card text-white disabled:text-muted"
+        >
+          <AppIcon name="chevronLeft" size={18} />
+        </button>
+      </footer>
+    </div>
+  );
+}
+
+function TabButton({ active, onClick, icon, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`mb-[-1px] inline-flex items-center gap-1.5 border-b-2 px-[18px] py-2.5 text-[13px] ${
+        active ? 'border-accent font-semibold text-white' : 'border-transparent text-muted'
+      }`}
+    >
+      <AppIcon name={icon} size={14} className={active ? 'text-accent' : ''} />
+      {children}
+    </button>
+  );
+}
+
+function Pill({ icon, children }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-card px-3 py-1.5 text-[13px] text-muted-text">
+      <AppIcon name={icon} size={13} />
+      {children}
+    </span>
+  );
+}
