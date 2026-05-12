@@ -9,6 +9,7 @@ import SubtitleOverlay, { SubtitleControls } from '../components/SubtitleOverlay
 import { useSubtitles } from '../hooks/useSubtitles';
 import { useLessonQuery, useLessonsQuery, useRegenerateChaptersMutation } from '../api/lessonQueries';
 import { getLesson } from '../services/api';
+import { buildApiUrl } from '../config/env';
 import { useLessonStatus } from '../hooks/useLessonStatus';
 import AppIcon from '../components/AppIcon';
 import ProgressSummary from '../components/ProgressSummary';
@@ -19,14 +20,17 @@ function buildVideoUrl(lesson) {
   if (!lesson) return '';
   if (lesson.youtubeVideoId || lesson.source === 'youtube') return '';
   const id = lesson.lessonId || lesson.id;
-  return `/api/lessons/${id}/video?role=student&delivery=proxy`;
+  return buildApiUrl(`/api/lessons/${id}/video?role=student&delivery=proxy`);
 }
 
 async function readVideoEndpointError(videoSrc) {
   if (!videoSrc) return '';
   try {
     const response = await fetch(videoSrc, {
-      headers: { Range: 'bytes=0-0' },
+      headers: {
+        Range: 'bytes=0-0',
+        'x-demo-role': localStorage.getItem('demo_role') || 'student',
+      },
     });
     if (response.ok) return '';
     const contentType = response.headers.get('content-type') || '';
@@ -60,10 +64,6 @@ function loadYouTubeApi() {
   });
 
   return window.__sheryYouTubeApiPromise;
-}
-
-function isLocalBrowser() {
-  return ['localhost', '127.0.0.1', '[::1]', '::1'].includes(window.location.hostname);
 }
 
 function SidebarLessonRow({ lesson, index, isActive, onClick }) {
@@ -236,8 +236,7 @@ export default function LessonPage() {
   const currentStatus = liveStatus || lesson?.status;
   const isReady = currentStatus === 'ready';
   const isYouTube = Boolean(lesson?.youtubeVideoId);
-  const hasLocalOnlyProductionVideo = lesson?.storagePath?.startsWith('local:') && !isLocalBrowser();
-  const canLoadUploadedVideo = !hasLocalOnlyProductionVideo && !isYouTube && (Boolean(lesson?.videoUrl) || isReady);
+  const canLoadUploadedVideo = !isYouTube && (Boolean(lesson?.videoUrl) || isReady);
   const readyCount = allLessons.filter((item) => item.status === 'ready').length;
   const pct = allLessons.length > 0 ? Math.round((readyCount / allLessons.length) * 100) : 0;
   const videoSrc = buildVideoUrl(lesson);
@@ -429,11 +428,6 @@ export default function LessonPage() {
                 ref={playerRef}
                 className="block h-full w-full bg-black [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:border-0"
               />
-            ) : hasLocalOnlyProductionVideo ? (
-              <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-white/65">
-                <AppIcon name="alert" size={40} className="text-accent" />
-                <p className="max-w-[360px] text-[13px] leading-6">This uploaded video was stored on a local server disk and is no longer available in production. Re-upload it after cloud storage is configured.</p>
-              </div>
             ) : canLoadUploadedVideo ? (
               <CustomVideoPlayer
                 ref={videoRef}
