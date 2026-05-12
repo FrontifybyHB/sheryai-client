@@ -20,9 +20,16 @@ const NotFoundPage      = lazy(() => import('./pages/NotFoundPage'));
 // ── Loading spinner ───────────────────────────────────────
 function PageLoader() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-surface-base">
-      <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-accent/20 border-t-accent" />
-      <p className="text-[13px] text-muted">Loading...</p>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-[#050505] px-6 text-white">
+      <div className="w-full max-w-[360px] text-center">
+        <div className="mb-6 text-xl font-black tracking-tight">
+          SHERY <span className="text-accent">AI</span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full border border-white/10 bg-white/[0.04]">
+          <div className="h-full w-2/3 animate-[landingLoad_1.15s_ease-in-out_infinite] rounded-full bg-gradient-to-r from-accent via-orange-400 to-amber-300" />
+        </div>
+        <p className="mt-4 text-[13px] font-medium text-muted-text">Preparing your learning space...</p>
+      </div>
     </div>
   );
 }

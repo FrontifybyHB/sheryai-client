@@ -48,6 +48,10 @@ export default {
           '0%,80%,100%': { transform: 'translateY(0)', opacity: '.4' },
           '40%': { transform: 'translateY(-6px)', opacity: '1' },
         },
+        landingLoad: {
+          '0%': { transform: 'translateX(-110%)' },
+          '55%,100%': { transform: 'translateX(155%)' },
+        },
       },
       animation: {
         spin: 'spin 1s linear infinite',

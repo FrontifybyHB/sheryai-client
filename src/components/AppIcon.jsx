@@ -1,5 +1,7 @@
 import {
   AlertTriangle,
+  ArrowRight,
+  ArrowUp,
   BadgeCheck,
   Bell,
   BookOpen,
@@ -22,6 +24,7 @@ import {
   Link as LinkIcon,
   Loader2,
   Maximize,
+  Menu,
   Minimize,
   Megaphone,
   MessageCircle,
@@ -52,6 +55,8 @@ import {
 
 const ICONS = {
   alert: AlertTriangle,
+  arrowRight: ArrowRight,
+  arrowUp: ArrowUp,
   badgeCheck: BadgeCheck,
   bell: Bell,
   book: BookOpen,
@@ -74,6 +79,7 @@ const ICONS = {
   link: LinkIcon,
   loader: Loader2,
   maximize: Maximize,
+  menu: Menu,
   minimize: Minimize,
   megaphone: Megaphone,
   message: MessageCircle,
