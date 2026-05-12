@@ -1,9 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  deleteFailedLesson,
+  deleteFailedLessons,
   generateQuiz,
+  getFailedLessons,
   getLesson,
   getLessons,
   getLessonStatus,
+  ingestUrlLesson,
   ingestYoutubeLesson,
   regenerateChapters,
   uploadLesson,
@@ -12,6 +16,7 @@ import {
 export const lessonKeys = {
   all: ['lessons'],
   list: (courseId) => [...lessonKeys.all, 'list', courseId],
+  failed: (courseId) => [...lessonKeys.all, 'failed', courseId],
   detail: (lessonId) => [...lessonKeys.all, 'detail', lessonId],
   status: (lessonId) => [...lessonKeys.all, 'status', lessonId],
 };
@@ -30,6 +35,15 @@ export function useLessonQuery(lessonId, options = {}) {
     queryKey: lessonKeys.detail(lessonId),
     queryFn: () => getLesson(lessonId),
     enabled: Boolean(lessonId),
+    ...options,
+  });
+}
+
+export function useFailedLessonsQuery(courseId, options = {}) {
+  return useQuery({
+    queryKey: lessonKeys.failed(courseId),
+    queryFn: () => getFailedLessons(courseId),
+    enabled: Boolean(courseId),
     ...options,
   });
 }
@@ -54,11 +68,41 @@ export function useIngestYoutubeLessonMutation() {
   });
 }
 
+export function useIngestUrlLessonMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ingestUrlLesson,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: lessonKeys.all }),
+  });
+}
+
 export function useUploadLessonMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: uploadLesson,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: lessonKeys.all }),
+  });
+}
+
+export function useDeleteFailedLessonMutation(courseId) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteFailedLesson,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: lessonKeys.failed(courseId) });
+      queryClient.invalidateQueries({ queryKey: lessonKeys.list(courseId) });
+    },
+  });
+}
+
+export function useClearFailedLessonsMutation(courseId) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => deleteFailedLessons(courseId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: lessonKeys.failed(courseId) });
+      queryClient.invalidateQueries({ queryKey: lessonKeys.list(courseId) });
+    },
   });
 }
 

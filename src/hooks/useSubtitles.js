@@ -192,7 +192,19 @@ function normalizeWord(word, _language) {
 function buildSentenceBlocks(chunks) {
   if (!chunks?.length) return [];
 
-  const sorted = [...chunks].sort((a, b) => a.startTime - b.startTime);
+  const sorted = [...chunks]
+    .map((chunk) => {
+      const startTime = Number(chunk.startTime ?? chunk.start ?? chunk.offset ?? 0);
+      const endTime = Number(chunk.endTime ?? chunk.end ?? chunk.startTime + chunk.duration ?? startTime);
+      return {
+        ...chunk,
+        startTime,
+        endTime: endTime > startTime ? endTime : startTime + Math.max(Number(chunk.duration || 0), 0),
+        text: chunk.text || chunk.caption || chunk.content || '',
+      };
+    })
+    .filter((chunk) => chunk.text?.trim() && Number.isFinite(chunk.startTime) && Number.isFinite(chunk.endTime))
+    .sort((a, b) => a.startTime - b.startTime);
   const blocks = [];
 
   let currentWords = [];
@@ -248,7 +260,9 @@ function buildSentenceBlocks(chunks) {
 function findActiveBlock(blocks, t) {
   if (!blocks.length) return -1;
   if (t < blocks[0].startTime) return -1;
-  if (t >= blocks[blocks.length - 1].endTime) return blocks.length - 1;
+  if (t >= blocks[blocks.length - 1].endTime) {
+    return t - blocks[blocks.length - 1].endTime < 0.5 ? blocks.length - 1 : -1;
+  }
 
   let lo = 0, hi = blocks.length - 1;
   while (lo <= hi) {
@@ -380,12 +394,14 @@ export function useSubtitles(lessonId, videoRef, currentTimeRef) {
     setLoading(true);
     setError(null);
     setHasTranscript(false);
+    setCaptionState({ words: [], isNew: false });
     blocksRef.current = [];
 
     getLessonTranscript(lessonId)
       .then(data => {
-        if (data.success && data.chunks?.length > 0) {
-          const blocks = buildSentenceBlocks(data.chunks);
+        const chunks = data.chunks || data.transcriptChunks || data.transcript?.chunks || data.items || [];
+        if ((data.success !== false) && chunks.length > 0) {
+          const blocks = buildSentenceBlocks(chunks);
           blocksRef.current = blocks;
           setHasTranscript(blocks.length > 0);
         } else {

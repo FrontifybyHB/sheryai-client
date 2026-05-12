@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import AppIcon from '../components/AppIcon';
 import { useGenerateQuizMutation } from '../api/lessonQueries';
+import ProgressSummary, { ProgressTrack } from '../components/ProgressSummary';
 
 const TIMER_SECS = 30;
 
@@ -130,7 +131,7 @@ function QuestionCard({ q, idx, total, score, streak, timeLeft, selected, reveal
         </div>
       </header>
 
-      <progress value={progress} max="100" className="mb-6 h-1 w-full accent-accent" />
+      <ProgressTrack value={progress} height="h-1" className="mb-6" />
 
       <article className="overflow-hidden rounded-[20px] border border-line bg-surface-card shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
         <div className="px-7 pb-2 pt-6">
@@ -236,19 +237,16 @@ function ResultsScreen({ quiz, answers, score, totalTime, onRestart, lessonId })
           {correct}/{quiz.length}
         </h1>
         <p className="mb-6 text-[15px] text-muted">{msg}</p>
-        <progress value={pct} max="100" className="mb-6 h-2.5 w-full accent-accent" />
-        <div className="flex justify-center gap-8">
-          {[
-            ['target', 'Accuracy', `${pct}%`],
-            ['clock', 'Time', fmtTime(totalTime)],
-          ].map(([icon, label, value]) => (
-            <div key={label}>
-              <AppIcon name={icon} size={22} className="text-accent" />
-              <div className="text-lg font-extrabold text-white">{value}</div>
-              <div className="text-[11px] text-muted">{label}</div>
-            </div>
-          ))}
-        </div>
+        <ProgressSummary
+          percent={pct}
+          title={`${pct}% Accuracy`}
+          stats={[
+            { label: 'Correct', value: `${correct}/${quiz.length}` },
+            { label: 'Score', value: `${score} pts` },
+            { label: 'Time', value: fmtTime(totalTime) },
+          ]}
+          className="bg-surface-nav text-left"
+        />
       </section>
 
       <div className="mb-4 flex gap-1 rounded-full border border-line bg-surface-card p-1">

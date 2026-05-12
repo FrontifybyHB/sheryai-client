@@ -56,8 +56,6 @@ export default function InstructorPage() {
     order: 1,
   });
   const [selectedFile, setSelectedFile] = useState(null);
-  const submitting = ingestMutation.isPending || uploadMutation.isPending;
-
   const handleYoutubeSubmit = async (event) => {
     event.preventDefault();
     if (!ytForm.youtubeUrl || !ytForm.title) return toast.error('Title and YouTube URL required');
@@ -162,7 +160,7 @@ export default function InstructorPage() {
                     onChange={(event) => setYtForm((form) => ({ ...form, description: event.target.value }))}
                   />
                 </Field>
-                <FormFooter submitting={submitting} icon="rocket" busyText="Submitting..." text="Create Lesson">
+                <FormFooter busy={ingestMutation.isPending} disabled={ingestMutation.isPending} icon="rocket" busyText="Submitting..." text="Create Lesson">
                   Transcription takes 1-3 minutes. You can leave this page.
                 </FormFooter>
               </form>
@@ -229,7 +227,13 @@ export default function InstructorPage() {
                     onChange={(event) => setUploadForm((form) => ({ ...form, description: event.target.value }))}
                   />
                 </Field>
-                <FormFooter submitting={submitting || !selectedFile} icon="upload" busyText="Uploading..." text="Upload & Process">
+                <FormFooter
+                  busy={uploadMutation.isPending}
+                  disabled={uploadMutation.isPending || !selectedFile}
+                  icon="upload"
+                  busyText="Uploading..."
+                  text="Upload & Process"
+                >
                   Supports Hindi, Hinglish, and accented English.
                 </FormFooter>
               </form>
@@ -285,16 +289,16 @@ function Field({ label, children }) {
   );
 }
 
-function FormFooter({ submitting, icon, busyText, text, children }) {
+function FormFooter({ busy, disabled, icon, busyText, text, children }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
       <button
         type="submit"
-        disabled={submitting}
+        disabled={disabled}
         className="inline-flex items-center gap-2 rounded-[10px] bg-accent px-6 py-[11px] text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:bg-surface-hover disabled:opacity-60"
       >
-        {submitting ? <AppIcon name="loader" size={15} className="animate-spin" /> : <AppIcon name={icon} size={15} />}
-        {submitting ? busyText : text}
+        {busy ? <AppIcon name="loader" size={15} className="animate-spin" /> : <AppIcon name={icon} size={15} />}
+        {busy ? busyText : text}
       </button>
       <p className="text-xs text-muted">{children}</p>
     </div>

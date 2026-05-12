@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useLessonsQuery } from '../api/lessonQueries';
 import Navbar from '../components/Navbar';
 import AppIcon from '../components/AppIcon';
+import ProgressSummary from '../components/ProgressSummary';
 
 const DEMO_COURSE = 'demo-course-001';
 
@@ -109,29 +110,22 @@ export default function DashboardPage() {
             <h1 className="text-xl font-bold text-white">AI Learning Companion</h1>
           </div>
 
-          <section className="mb-6 rounded-2xl border border-line bg-surface-card px-[22px] py-5">
-            <div className="mb-2.5 flex items-center justify-between">
-              <span className="text-[13px] font-bold text-accent">{pct}% Complete</span>
-              {nextLesson && (
+          <ProgressSummary
+            className="mb-6"
+            percent={pct}
+            stats={[
+              { label: 'Lessons', value: `${readyCount}/${lessons.length}` },
+              { label: 'AI Indexed', value: readyCount },
+              { label: 'Quizzes', value: `${readyCount} available` },
+            ]}
+            action={
+              nextLesson && (
                 <Link to={`/lesson/${nextLesson.id}`} className="rounded-lg bg-accent px-3.5 py-1.5 text-xs font-semibold text-white">
                   Resume Learning
                 </Link>
-              )}
-            </div>
-            <progress value={pct} max="100" className="mb-3 h-2 w-full accent-accent" />
-            <div className="flex flex-wrap gap-7">
-              {[
-                ['Lessons', `${readyCount}/${lessons.length}`],
-                ['AI Indexed', readyCount],
-                ['Quizzes', `${readyCount} available`],
-              ].map(([label, value]) => (
-                <div key={label}>
-                  <span className="text-[11px] text-muted">{label}</span>
-                  <p className="text-[13px] font-semibold text-accent">{value}</p>
-                </div>
-              ))}
-            </div>
-          </section>
+              )
+            }
+          />
 
           <div className="mb-5 flex gap-1 border-b border-line">
             {[

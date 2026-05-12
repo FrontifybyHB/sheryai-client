@@ -9,6 +9,10 @@ export async function ingestYoutubeLesson(payload) {
   return apiClient.post('/api/lessons/ingest-youtube', payload);
 }
 
+export async function ingestUrlLesson(payload) {
+  return apiClient.post('/api/lessons/ingest-url', payload);
+}
+
 export async function uploadLesson(formData) {
   return directApiClient.post('/api/lessons/upload', formData);
 }
@@ -35,6 +39,28 @@ export async function getLessons(courseId) {
   }
 
   return data;
+}
+
+export async function getFailedLessons(courseId) {
+  const data = await apiClient.get('/api/lessons/failed', {
+    params: { courseId },
+  });
+
+  if (data.lessons) {
+    data.lessons = data.lessons.map((lesson) => ({ ...lesson, id: lesson.id || lesson.lessonId }));
+  }
+
+  return data;
+}
+
+export async function deleteFailedLessons(courseId) {
+  return apiClient.delete('/api/lessons/failed', {
+    params: { courseId },
+  });
+}
+
+export async function deleteFailedLesson(lessonId) {
+  return apiClient.delete(`/api/lessons/${lessonId}/failed`);
 }
 
 export async function getLessonTranscript(lessonId) {

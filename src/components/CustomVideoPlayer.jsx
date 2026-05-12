@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import AppIcon from './AppIcon';
+import { SubtitleControls } from './SubtitleOverlay';
 
 function fmtTime(seconds = 0) {
   const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
@@ -18,17 +19,21 @@ const CustomVideoPlayer = forwardRef(function CustomVideoPlayer(
     onLoadedMetadata,
     onTimeUpdate,
     onError,
+    subtitles,
   },
   ref
 ) {
   const videoRef = useRef(null);
   const shellRef = useRef(null);
+  const hideControlsRef = useRef(null);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [controlsVisible, setControlsVisible] = useState(true);
 
   useImperativeHandle(ref, () => videoRef.current);
 
@@ -42,7 +47,26 @@ const CustomVideoPlayer = forwardRef(function CustomVideoPlayer(
     setPlaying(false);
     setCurrentTime(0);
     setDuration(0);
+    setPlaybackRate(1);
+    setControlsVisible(true);
   }, [src]);
+
+  useEffect(() => {
+    if (!playing) {
+      setControlsVisible(true);
+      return undefined;
+    }
+    hideControlsRef.current = window.setTimeout(() => setControlsVisible(false), 1800);
+    return () => window.clearTimeout(hideControlsRef.current);
+  }, [playing]);
+
+  const revealControls = () => {
+    setControlsVisible(true);
+    window.clearTimeout(hideControlsRef.current);
+    if (videoRef.current && !videoRef.current.paused) {
+      hideControlsRef.current = window.setTimeout(() => setControlsVisible(false), 1800);
+    }
+  };
 
   const togglePlay = async () => {
     const video = videoRef.current;
@@ -60,6 +84,15 @@ const CustomVideoPlayer = forwardRef(function CustomVideoPlayer(
     const nextTime = Number(value);
     video.currentTime = nextTime;
     setCurrentTime(nextTime);
+  };
+
+  const skipBy = (seconds) => {
+    const video = videoRef.current;
+    if (!video) return;
+    const nextTime = Math.min(Math.max((video.currentTime || 0) + seconds, 0), duration || video.duration || 0);
+    video.currentTime = nextTime;
+    setCurrentTime(nextTime);
+    revealControls();
   };
 
   const changeVolume = (value) => {
@@ -94,8 +127,24 @@ const CustomVideoPlayer = forwardRef(function CustomVideoPlayer(
     }
   };
 
+  const changePlaybackRate = () => {
+    const rates = [1, 1.25, 1.5, 2, 0.75];
+    const nextRate = rates[(rates.indexOf(playbackRate) + 1) % rates.length] || 1;
+    const video = videoRef.current;
+    if (video) video.playbackRate = nextRate;
+    setPlaybackRate(nextRate);
+    revealControls();
+  };
+
   return (
-    <div ref={shellRef} className={`group relative h-full w-full overflow-hidden bg-black ${className}`}>
+    <div
+      ref={shellRef}
+      className={`group relative h-full w-full overflow-hidden bg-black ${className}`}
+      onMouseMove={revealControls}
+      onMouseEnter={revealControls}
+      onTouchStart={revealControls}
+      onFocusCapture={revealControls}
+    >
       <button type="button" aria-label={playing ? 'Pause video' : 'Play video'} onClick={togglePlay} className="absolute inset-0 z-10 cursor-pointer">
         <span className="sr-only">{playing ? 'Pause video' : 'Play video'}</span>
       </button>
@@ -105,8 +154,13 @@ const CustomVideoPlayer = forwardRef(function CustomVideoPlayer(
         src={src}
         playsInline
         preload="metadata"
+        controlsList="nodownload noplaybackrate noremoteplayback"
+        disablePictureInPicture
+        disableRemotePlayback
+        referrerPolicy="same-origin"
         title={title}
         className="block h-full w-full bg-black object-contain"
+        onContextMenu={(event) => event.preventDefault()}
         onLoadedMetadata={(event) => {
           setDuration(event.currentTarget.duration || 0);
           onLoadedMetadata?.(event);
@@ -116,7 +170,10 @@ const CustomVideoPlayer = forwardRef(function CustomVideoPlayer(
           onTimeUpdate?.(event);
         }}
         onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
+        onPause={() => {
+          setPlaying(false);
+          setControlsVisible(true);
+        }}
         onEnded={() => setPlaying(false)}
         onError={onError}
       />
@@ -129,7 +186,11 @@ const CustomVideoPlayer = forwardRef(function CustomVideoPlayer(
         </div>
       )}
 
-      <div className="absolute bottom-0 left-0 right-0 z-40 bg-gradient-to-t from-black via-black/82 to-transparent px-3 pb-3 pt-12 text-white opacity-100 transition sm:px-4">
+      <div
+        className={`absolute bottom-0 left-0 right-0 z-40 bg-gradient-to-t from-black via-black/82 to-transparent px-3 pb-3 pt-12 text-white transition duration-200 sm:px-4 ${
+          controlsVisible ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+        }`}
+      >
         <input
           type="range"
           min="0"
@@ -146,11 +207,23 @@ const CustomVideoPlayer = forwardRef(function CustomVideoPlayer(
             <AppIcon name={playing ? 'pause' : 'play'} size={17} />
           </button>
 
+          <button type="button" onClick={() => skipBy(-10)} aria-label="Skip back 10 seconds" className="hidden h-8 min-w-8 items-center justify-center rounded-lg border border-white/10 bg-white/10 px-2 font-mono text-[11px] font-bold text-white transition hover:bg-white/20 sm:inline-flex">
+            -10
+          </button>
+
+          <button type="button" onClick={() => skipBy(10)} aria-label="Skip forward 10 seconds" className="hidden h-8 min-w-8 items-center justify-center rounded-lg border border-white/10 bg-white/10 px-2 font-mono text-[11px] font-bold text-white transition hover:bg-white/20 sm:inline-flex">
+            +10
+          </button>
+
           <span className="min-w-[86px] font-mono text-[11px] text-white/75">
             {fmtTime(currentTime)} / {fmtTime(duration)}
           </span>
 
           <div className="ml-auto flex items-center gap-2">
+            {subtitles && <SubtitleControls subtitles={subtitles} placement="top" />}
+            <button type="button" onClick={changePlaybackRate} aria-label="Change playback speed" className="flex h-8 min-w-10 items-center justify-center rounded-lg border border-white/10 bg-white/10 px-2 font-mono text-[11px] font-bold text-white transition hover:bg-white/20">
+              {playbackRate}x
+            </button>
             <button type="button" onClick={toggleMuted} aria-label={muted ? 'Unmute' : 'Mute'} className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/10 text-white transition hover:bg-white/20">
               <AppIcon name={muted ? 'volumeX' : 'volume'} size={16} />
             </button>

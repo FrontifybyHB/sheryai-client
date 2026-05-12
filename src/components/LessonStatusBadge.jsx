@@ -1,4 +1,5 @@
 import AppIcon from './AppIcon';
+import { ProgressTrack } from './ProgressSummary';
 
 const STATUS_META = {
   uploading: { label: 'Uploading', tone: 'accent', pulse: true },
@@ -13,22 +14,18 @@ const toneClass = {
   accent: {
     badge: 'border-accent/40 bg-accent/15 text-accent',
     dot: 'bg-accent',
-    progress: 'accent-accent',
   },
   amber: {
     badge: 'border-amber-500/40 bg-amber-500/15 text-amber-500',
     dot: 'bg-amber-500',
-    progress: 'accent-amber-500',
   },
   green: {
     badge: 'border-green-500/40 bg-green-500/15 text-green-500',
     dot: 'bg-green-500',
-    progress: 'accent-green-500',
   },
   red: {
     badge: 'border-red-500/40 bg-red-500/15 text-red-500',
     dot: 'bg-red-500',
-    progress: 'accent-red-500',
   },
 };
 
@@ -46,7 +43,7 @@ export default function LessonStatusBadge({ status, progress = 0, chunkCount = 0
 
       {meta.pulse && progress > 0 && (
         <div className="w-full max-w-[220px]">
-          <progress value={progress} max="100" className={`h-1.5 w-full ${tone.progress}`} />
+          <ProgressTrack value={progress} height="h-1.5" />
           <p className="mt-1 text-[11px] text-slate-400">
             {progress}%{chunkCount > 0 ? ` · ${chunkCount} chunks` : ''}
           </p>

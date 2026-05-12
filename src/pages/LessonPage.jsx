@@ -11,16 +11,55 @@ import { useLessonQuery, useLessonsQuery, useRegenerateChaptersMutation } from '
 import { getLesson } from '../services/api';
 import { useLessonStatus } from '../hooks/useLessonStatus';
 import AppIcon from '../components/AppIcon';
-import { API_DIRECT_URL } from '../config/env';
+import ProgressSummary from '../components/ProgressSummary';
 
 const DEMO_COURSE = 'demo-course-001';
 
 function buildVideoUrl(lesson) {
   if (!lesson) return '';
-  if (lesson.videoUrl) return lesson.videoUrl;
-  if (lesson.source !== 'upload') return '';
+  if (lesson.youtubeVideoId || lesson.source === 'youtube') return '';
   const id = lesson.lessonId || lesson.id;
-  return `${API_DIRECT_URL}/api/lessons/${id}/video?role=student`;
+  return `/api/lessons/${id}/video?role=student&delivery=proxy`;
+}
+
+async function readVideoEndpointError(videoSrc) {
+  if (!videoSrc) return '';
+  try {
+    const response = await fetch(videoSrc, {
+      headers: { Range: 'bytes=0-0' },
+    });
+    if (response.ok) return '';
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const data = await response.json();
+      return data.message || data.error || `Video request failed with HTTP ${response.status}.`;
+    }
+    const text = await response.text();
+    return text?.trim() || `Video request failed with HTTP ${response.status}.`;
+  } catch {
+    return '';
+  }
+}
+
+function loadYouTubeApi() {
+  if (window.YT?.Player) return Promise.resolve(window.YT);
+  if (window.__sheryYouTubeApiPromise) return window.__sheryYouTubeApiPromise;
+
+  window.__sheryYouTubeApiPromise = new Promise((resolve, reject) => {
+    const previousReady = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      previousReady?.();
+      resolve(window.YT);
+    };
+
+    const script = document.createElement('script');
+    script.src = 'https://www.youtube.com/iframe_api';
+    script.async = true;
+    script.onerror = () => reject(new Error('Could not load YouTube player API'));
+    document.head.appendChild(script);
+  });
+
+  return window.__sheryYouTubeApiPromise;
 }
 
 function isLocalBrowser() {
@@ -73,12 +112,14 @@ export default function LessonPage() {
   const [regeneratingChapters, setRegeneratingChapters] = useState(false);
 
   const playerRef = useRef(null);
+  const youtubePlayerRef = useRef(null);
   const pollRef = useRef(null);
   const videoRef = useRef(null);
   const currentTimeRef = useRef(0);
   const autoRegenDone = useRef(false);
   const lessonQuery = useLessonQuery(lessonId);
-  const lessonsQuery = useLessonsQuery(DEMO_COURSE);
+  const activeCourseId = lesson?.courseId || lessonQuery.data?.lesson?.courseId || DEMO_COURSE;
+  const lessonsQuery = useLessonsQuery(activeCourseId);
   const regenerateMutation = useRegenerateChaptersMutation(lessonId);
   const allLessons = lessonsQuery.data?.lessons || [];
   const loading = lessonQuery.isLoading || lessonsQuery.isLoading;
@@ -88,6 +129,12 @@ export default function LessonPage() {
   useEffect(() => {
     if (lessonQuery.data?.lesson) setLesson(lessonQuery.data.lesson);
   }, [lessonQuery.data]);
+
+  useEffect(() => {
+    autoRegenDone.current = false;
+    currentTimeRef.current = 0;
+    setCurrentTime(0);
+  }, [lessonId]);
 
   useEffect(() => {
     if (liveStatus === 'ready' && lesson?.status !== 'ready') {
@@ -121,32 +168,53 @@ export default function LessonPage() {
   }, [lesson?.videoUrl, lesson?.source, lesson?.status, lessonId]);
 
   useEffect(() => {
-    if (!lesson?.youtubeVideoId) return;
-    const handler = (event) => {
-      if (event.origin !== 'https://www.youtube.com') return;
-      try {
-        const data = JSON.parse(event.data);
-        if (data.event === 'infoDelivery' && data.info?.currentTime !== undefined) {
-          const t = data.info.currentTime;
-          currentTimeRef.current = t;
-          setCurrentTime(Math.floor(t));
-        }
-      } catch {}
-    };
-    window.addEventListener('message', handler);
-    pollRef.current = setInterval(() => {
-      playerRef.current?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'getCurrentTime', args: [] }), '*');
-    }, 500);
+    if (!lesson?.youtubeVideoId || !playerRef.current) return undefined;
+    let cancelled = false;
+    clearInterval(pollRef.current);
+    youtubePlayerRef.current?.destroy?.();
+    youtubePlayerRef.current = null;
+
+    loadYouTubeApi()
+      .then((YT) => {
+        if (cancelled || !playerRef.current) return;
+        youtubePlayerRef.current = new YT.Player(playerRef.current, {
+          videoId: lesson.youtubeVideoId,
+          playerVars: {
+            controls: 1,
+            enablejsapi: 1,
+            playsinline: 1,
+            rel: 0,
+            origin: window.location.origin,
+          },
+          events: {
+            onReady: (event) => {
+              const duration = Number(event.target.getDuration?.() || 0);
+              if (duration > 0) setVideoDuration(duration);
+              pollRef.current = window.setInterval(() => {
+                const t = Number(event.target.getCurrentTime?.() || 0);
+                const nextDuration = Number(event.target.getDuration?.() || 0);
+                currentTimeRef.current = t;
+                setCurrentTime(Math.floor(t));
+                if (nextDuration > 0) setVideoDuration(nextDuration);
+              }, 250);
+            },
+          },
+        });
+      })
+      .catch(() => setVideoError('YouTube player could not load. Try opening the video on YouTube.'));
+
     return () => {
-      window.removeEventListener('message', handler);
+      cancelled = true;
       clearInterval(pollRef.current);
+      youtubePlayerRef.current?.destroy?.();
+      youtubePlayerRef.current = null;
     };
-  }, [lesson?.youtubeVideoId]);
+  }, [lesson?.youtubeVideoId, lessonId]);
 
   const seekTo = useCallback(
     (seconds) => {
       if (lesson?.youtubeVideoId) {
-        playerRef.current?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [seconds, true] }), '*');
+        youtubePlayerRef.current?.seekTo?.(seconds, true);
       } else if (videoRef.current) {
         videoRef.current.currentTime = seconds;
         videoRef.current.play().catch(() => {});
@@ -169,12 +237,21 @@ export default function LessonPage() {
   const isReady = currentStatus === 'ready';
   const isYouTube = Boolean(lesson?.youtubeVideoId);
   const hasLocalOnlyProductionVideo = lesson?.storagePath?.startsWith('local:') && !isLocalBrowser();
-  const canLoadUploadedVideo = !hasLocalOnlyProductionVideo && (Boolean(lesson?.videoUrl) || (lesson?.source === 'upload' && isReady));
+  const canLoadUploadedVideo = !hasLocalOnlyProductionVideo && !isYouTube && (Boolean(lesson?.videoUrl) || isReady);
   const readyCount = allLessons.filter((item) => item.status === 'ready').length;
   const pct = allLessons.length > 0 ? Math.round((readyCount / allLessons.length) * 100) : 0;
   const videoSrc = buildVideoUrl(lesson);
 
   const subtitles = useSubtitles(lessonId, isYouTube ? null : videoRef, isYouTube ? currentTimeRef : null, isYouTube);
+
+  const handleVideoLoadError = useCallback(async () => {
+    const endpointMessage = await readVideoEndpointError(videoSrc);
+    if (/not found/i.test(endpointMessage)) {
+      setVideoError('Video file not found on server. This lesson record still exists, but the stored media file is missing. Re-upload or re-import the lesson from Course Lesson Manager.');
+      return;
+    }
+    setVideoError(endpointMessage || 'Video could not load. Check the backend video endpoint, storage access, or CORS response.');
+  }, [videoSrc]);
 
   useEffect(() => {
     setVideoError('');
@@ -190,11 +267,11 @@ export default function LessonPage() {
   }
 
   return (
-    <div className="flex h-screen max-h-screen min-h-0 flex-col overflow-hidden bg-surface-base">
+    <div className="flex min-h-screen flex-col overflow-y-auto bg-surface-base xl:h-screen xl:max-h-screen xl:min-h-0 xl:overflow-hidden">
       <Navbar />
 
-      <main className={`grid min-h-0 flex-1 overflow-y-auto md:overflow-hidden ${sidebarCollapsed ? 'grid-cols-1 md:grid-cols-[52px_minmax(260px,0.9fr)_minmax(300px,1.1fr)]' : 'grid-cols-1 md:grid-cols-[240px_minmax(260px,0.9fr)_minmax(300px,1.1fr)]'}`}>
-        <aside className={`${sidebarCollapsed ? 'hidden md:flex' : 'flex'} min-h-[320px] min-w-0 flex-col overflow-hidden border-r border-line bg-surface-nav md:min-h-0`}>
+      <main className={`grid min-h-0 flex-1 grid-cols-1 overflow-visible xl:overflow-hidden ${sidebarCollapsed ? 'xl:grid-cols-[52px_minmax(320px,0.9fr)_minmax(420px,1.15fr)]' : 'xl:grid-cols-[240px_minmax(320px,0.9fr)_minmax(420px,1.15fr)]'}`}>
+        <aside className={`${sidebarCollapsed ? 'hidden xl:flex' : 'flex'} order-3 min-h-[300px] min-w-0 flex-col overflow-hidden border-t border-line bg-surface-nav xl:order-1 xl:min-h-0 xl:border-r xl:border-t-0`}>
           <header className="border-b border-line p-4">
             <div className="mb-3 flex items-center justify-between">
               {!sidebarCollapsed && <Link to="/dashboard" className="text-xs font-medium text-muted-text">Back to course</Link>}
@@ -204,22 +281,21 @@ export default function LessonPage() {
             </div>
 
             {!sidebarCollapsed && (
-              <section className="rounded-xl border border-line bg-surface-card p-3.5">
-                <div className="mb-1.5 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-accent">{pct}% Complete</span>
-                  <span className="text-xs text-muted">{readyCount}/{allLessons.length}</span>
-                </div>
-                <progress value={pct} max="100" className="h-1.5 w-full accent-accent" />
-              </section>
+              <ProgressSummary
+                percent={pct}
+                compact
+                stats={[{ label: 'Lessons', value: `${readyCount}/${allLessons.length}` }]}
+                className="rounded-xl"
+              />
             )}
           </header>
 
           {!sidebarCollapsed && (
-            <div className="min-h-0 flex-1 overflow-y-auto p-2.5 pb-16 md:pb-2.5">
+            <div className="min-h-0 flex-1 overflow-y-auto p-2.5 pb-16 xl:pb-2.5">
               <div className="mb-2 flex items-center gap-2 px-1 text-[11px] font-bold uppercase tracking-wider text-muted">
                 <AppIcon name="book" size={13} /> Lessons <span className="ml-auto">{allLessons.length}</span>
               </div>
-              <div className="flex flex-col gap-1">
+              <div className="grid gap-1 sm:grid-cols-2 xl:flex xl:flex-col">
                 {allLessons.map((item, index) => (
                   <SidebarLessonRow
                     key={item.id || item.lessonId}
@@ -234,8 +310,8 @@ export default function LessonPage() {
           )}
         </aside>
 
-        <section className="flex min-h-[440px] min-w-0 flex-col overflow-hidden border-r border-line bg-surface-base md:min-h-0">
-          <header className="flex shrink-0 items-center overflow-hidden border-b border-line bg-surface-nav px-3 sm:px-4">
+        <section className="order-2 flex h-[680px] min-h-[520px] min-w-0 flex-col overflow-hidden border-t border-line bg-surface-base sm:h-[720px] xl:order-2 xl:h-auto xl:min-h-0 xl:border-r xl:border-t-0">
+          <header className="flex shrink-0 items-center overflow-x-auto border-b border-line bg-surface-nav px-3 sm:px-4">
             <TabButton active={midTab === 'class'} onClick={() => setMidTab('class')} icon="circleDot">Class</TabButton>
             <TabButton active={midTab === 'ai'} onClick={() => setMidTab('ai')} icon="bot">AI Tutor</TabButton>
             <div className="ml-auto flex min-w-0 items-center gap-2 overflow-hidden">
@@ -336,7 +412,7 @@ export default function LessonPage() {
           )}
         </section>
 
-        <section className="flex min-h-[360px] min-w-0 flex-col overflow-hidden bg-black md:min-h-0">
+        <section className="order-1 flex h-[min(68vh,560px)] min-h-[320px] min-w-0 flex-col overflow-hidden bg-black sm:min-h-[420px] xl:order-3 xl:h-auto xl:min-h-0">
           <header className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-surface-nav px-3 py-2.5 sm:px-4 sm:py-3">
             <div className="flex min-w-0 items-center gap-2 text-[13px] font-semibold text-white">
               <AppIcon name="video" size={15} className="text-accent" /> Video Lecture
@@ -347,15 +423,11 @@ export default function LessonPage() {
             </div>
           </header>
 
-          <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
+          <div className="group/video relative min-h-0 flex-1 overflow-hidden bg-black">
             {lesson?.youtubeVideoId ? (
-              <iframe
+              <div
                 ref={playerRef}
-                src={`https://www.youtube.com/embed/${lesson.youtubeVideoId}?enablejsapi=1&origin=${window.location.origin}`}
-                title={lesson?.title || 'Lesson video'}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                className="block h-full w-full border-0 bg-black"
+                className="block h-full w-full bg-black [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:border-0"
               />
             ) : hasLocalOnlyProductionVideo ? (
               <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-white/65">
@@ -367,11 +439,12 @@ export default function LessonPage() {
                 ref={videoRef}
                 src={videoSrc}
                 title={lesson?.title || 'Lesson video'}
+                subtitles={subtitles}
                 onLoadedMetadata={(event) => {
                   setVideoDuration(event.currentTarget.duration || 0);
                   setVideoError('');
                 }}
-                onError={() => setVideoError('Video could not load. Check the backend video URL, storage access, or CORS response.')}
+                onError={handleVideoLoadError}
                 onTimeUpdate={(event) => {
                   const t = Math.floor(event.currentTarget.currentTime);
                   currentTimeRef.current = t;
@@ -384,6 +457,11 @@ export default function LessonPage() {
                 <p className="text-[13px]">Preparing video...</p>
               </div>
             )}
+            {lesson?.youtubeVideoId && (
+              <div className="absolute bottom-16 right-4 z-40 opacity-0 transition group-hover/video:opacity-100 group-focus-within/video:opacity-100">
+                <SubtitleControls subtitles={subtitles} />
+              </div>
+            )}
 
             {videoError && (
               <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/85 p-5 text-center">
@@ -391,10 +469,20 @@ export default function LessonPage() {
                   <AppIcon name="alert" size={28} className="mx-auto mb-3 text-accent" />
                   <p className="text-sm font-semibold text-white">Video is not loading</p>
                   <p className="mt-2 text-xs leading-5 text-muted-text">{videoError}</p>
-                  {videoSrc && (
-                    <a href={videoSrc} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center justify-center rounded-lg border border-accent-border bg-accent-soft px-3 py-2 text-xs font-semibold text-accent">
-                      Open video directly
-                    </a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVideoError('');
+                      videoRef.current?.load?.();
+                    }}
+                    className="mt-4 inline-flex items-center justify-center rounded-lg border border-accent-border bg-accent-soft px-3 py-2 text-xs font-semibold text-accent"
+                  >
+                    Retry video
+                  </button>
+                  {lesson?.courseId && (
+                    <Link to={`/instructor/course/${lesson.courseId}`} className="ml-2 mt-4 inline-flex items-center justify-center rounded-lg border border-line bg-surface-hover px-3 py-2 text-xs font-semibold text-muted-text">
+                      Re-upload lesson
+                    </Link>
                   )}
                 </div>
               </div>
@@ -405,7 +493,7 @@ export default function LessonPage() {
         </section>
       </main>
 
-      <footer className="flex shrink-0 items-center justify-between border-t border-line bg-surface-nav px-3 py-2.5 sm:px-5">
+      <footer className="sticky bottom-0 z-50 flex shrink-0 items-center justify-between border-t border-line bg-surface-nav px-3 py-2.5 sm:px-5 xl:static">
         <button
           type="button"
           onClick={() => prevLesson && navigate(`/lesson/${prevLesson.id || prevLesson.lessonId}`)}
