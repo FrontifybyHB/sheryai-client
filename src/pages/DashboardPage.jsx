@@ -91,11 +91,12 @@ export default function DashboardPage() {
   const [search, setSearch] = useState('');
   const { data, isLoading } = useLessonsQuery(DEMO_COURSE);
   const lessons = data?.lessons || [];
+  const readyLessons = lessons.filter((lesson) => lesson.status === 'ready');
 
-  const readyCount = lessons.filter((lesson) => lesson.status === 'ready').length;
-  const pct = lessons.length > 0 ? Math.round((readyCount / lessons.length) * 100) : 0;
-  const filteredLessons = lessons.filter((lesson) => lesson.title?.toLowerCase().includes(search.toLowerCase()));
-  const nextLesson = lessons.find((lesson) => lesson.status === 'ready');
+  const readyCount = readyLessons.length;
+  const pct = readyCount > 0 ? 100 : 0;
+  const filteredLessons = readyLessons.filter((lesson) => lesson.title?.toLowerCase().includes(search.toLowerCase()));
+  const nextLesson = readyLessons[0];
 
   return (
     <div className="min-h-screen bg-surface-base">
@@ -114,7 +115,7 @@ export default function DashboardPage() {
             className="mb-6"
             percent={pct}
             stats={[
-              { label: 'Lessons', value: `${readyCount}/${lessons.length}` },
+              { label: 'Lessons', value: readyCount },
               { label: 'AI Indexed', value: readyCount },
               { label: 'Quizzes', value: `${readyCount} available` },
             ]}
@@ -186,7 +187,7 @@ export default function DashboardPage() {
                 <div className="p-2">
                   {filteredLessons.length === 0 ? (
                     <div className="px-4 py-8 text-center text-muted">
-                      {search ? 'No results found.' : 'No lessons yet. Add some from Instructor Studio.'}
+                      {search ? 'No ready lessons found.' : 'No ready lessons yet. Successfully processed videos will appear here.'}
                     </div>
                   ) : (
                     filteredLessons.map((lesson, index) => <LessonRow key={lesson.id} lesson={lesson} index={index} />)
@@ -208,7 +209,7 @@ export default function DashboardPage() {
 
           <Panel title="Progress Heatmap" subtitle={`${readyCount * 8} lessons explored so far!`}>
             <div className="px-[18px] py-4">
-              <HeatMap lessons={lessons} />
+              <HeatMap lessons={readyLessons} />
             </div>
           </Panel>
 
