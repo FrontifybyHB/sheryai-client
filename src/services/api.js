@@ -63,6 +63,10 @@ export async function deleteFailedLesson(lessonId) {
   return apiClient.delete(`/api/lessons/${lessonId}/failed`);
 }
 
+export async function deleteLesson(lessonId) {
+  return apiClient.delete(`/api/lessons/${lessonId}`);
+}
+
 export async function getLessonTranscript(lessonId) {
   return apiClient.get(`/api/lessons/${lessonId}/transcript`);
 }

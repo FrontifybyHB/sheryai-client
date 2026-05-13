@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  deleteLesson,
   deleteFailedLesson,
   deleteFailedLessons,
   generateQuiz,
@@ -91,6 +92,19 @@ export function useDeleteFailedLessonMutation(courseId) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: lessonKeys.failed(courseId) });
       queryClient.invalidateQueries({ queryKey: lessonKeys.list(courseId) });
+    },
+  });
+}
+
+export function useDeleteLessonMutation(courseId) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteLesson,
+    onSuccess: (_data, lessonId) => {
+      queryClient.removeQueries({ queryKey: lessonKeys.detail(lessonId) });
+      queryClient.removeQueries({ queryKey: lessonKeys.status(lessonId) });
+      queryClient.invalidateQueries({ queryKey: lessonKeys.list(courseId) });
+      queryClient.invalidateQueries({ queryKey: lessonKeys.failed(courseId) });
     },
   });
 }

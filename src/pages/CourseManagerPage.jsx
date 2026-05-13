@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   useClearFailedLessonsMutation,
+  useDeleteLessonMutation,
   useDeleteFailedLessonMutation,
   useFailedLessonsQuery,
   useIngestUrlLessonMutation,
@@ -31,7 +32,7 @@ function formatSource(lesson) {
   return lesson.source || 'Lesson';
 }
 
-function LessonRow({ lesson, index }) {
+function LessonRow({ lesson, index, onDelete, deleting }) {
   const lessonId = lesson.id || lesson.lessonId;
   const { status, progress, chunkCount, error } = useLessonStatus(
     lessonId,
@@ -97,6 +98,14 @@ function LessonRow({ lesson, index }) {
         >
           <AppIcon name="brain" size={13} /> Quiz
         </Link>
+        <button
+          type="button"
+          onClick={() => onDelete(lesson)}
+          disabled={deleting}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-300 transition hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <AppIcon name={deleting ? 'loader' : 'trash'} size={13} className={deleting ? 'animate-spin' : ''} /> Delete
+        </button>
       </div>
     </div>
   );
@@ -169,9 +178,11 @@ export default function CourseManagerPage() {
   const ingestMutation = useIngestYoutubeLessonMutation();
   const ingestUrlMutation = useIngestUrlLessonMutation();
   const uploadMutation = useUploadLessonMutation();
+  const deleteLessonMutation = useDeleteLessonMutation(courseId);
   const deleteFailedMutation = useDeleteFailedLessonMutation(courseId);
   const clearFailedMutation = useClearFailedLessonsMutation(courseId);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [deletingLessonId, setDeletingLessonId] = useState('');
   const [youtubeForm, setYoutubeForm] = useState({
     title: '',
     description: '',
@@ -307,6 +318,22 @@ export default function CourseManagerPage() {
       toast.success('Failed lesson deleted');
     } catch (err) {
       toast.error(err.message || 'Could not delete failed lesson');
+    }
+  };
+
+  const deleteLesson = async (lesson) => {
+    const lessonId = lesson.id || lesson.lessonId;
+    const confirmed = window.confirm(`Delete "${lesson.title || 'this lesson'}"? This removes the lesson, transcript chunks, and uploaded video file.`);
+    if (!confirmed) return;
+
+    setDeletingLessonId(lessonId);
+    try {
+      await deleteLessonMutation.mutateAsync(lessonId);
+      toast.success('Lesson deleted');
+    } catch (err) {
+      toast.error(err.message || 'Could not delete lesson');
+    } finally {
+      setDeletingLessonId('');
     }
   };
 
@@ -517,7 +544,13 @@ export default function CourseManagerPage() {
           ) : (
             <div>
               {lessons.map((lesson, index) => (
-                <LessonRow key={lesson.id || lesson.lessonId} lesson={lesson} index={index} />
+                <LessonRow
+                  key={lesson.id || lesson.lessonId}
+                  lesson={lesson}
+                  index={index}
+                  onDelete={deleteLesson}
+                  deleting={deletingLessonId === (lesson.id || lesson.lessonId)}
+                />
               ))}
             </div>
           )}
