@@ -422,17 +422,7 @@ export default function LessonPage() {
             </div>
             <div className="flex shrink-0 items-center gap-2">
               {isReady && <Link to={`/lesson/${lessonId}/quiz`} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white">Quiz</Link>}
-              {isReady && (
-                <button
-                  type="button"
-                  onClick={() => setShowPdfModal(true)}
-                  title="Download PDF Summary"
-                  className="flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.06] px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 transition hover:border-white/30 hover:bg-white/10 hover:text-white"
-                >
-                  <AppIcon name="file" size={12} />
-                  PDF
-                </button>
-              )}
+
               <SubtitleControls subtitles={subtitles} />
             </div>
           </header>
