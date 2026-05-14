@@ -43,7 +43,7 @@ export function SubtitleControls({ subtitles }) {
       )}
 
       {showPanel && (
-        <div className="absolute bottom-[34px] right-0 z-[9999] w-[198px] rounded-[10px] border border-white/10 bg-[#0c0c12]/95 px-3 py-2.5 shadow-[0_8px_32px_rgba(0,0,0,0.65)] backdrop-blur-xl">
+        <div className="absolute top-[34px] right-0 z-[9999] w-[198px] rounded-[10px] border border-white/10 bg-[#0c0c12]/95 px-3 py-2.5 shadow-[0_8px_32px_rgba(0,0,0,0.65)] backdrop-blur-xl">
           <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-white/40">Subtitle Language</p>
           {[
             { id: 'english', label: 'English', sub: 'Roman script only' },

@@ -157,7 +157,6 @@ const CustomVideoPlayer = forwardRef(function CustomVideoPlayer(
         controlsList="nodownload noplaybackrate noremoteplayback"
         disablePictureInPicture
         disableRemotePlayback
-        referrerPolicy="same-origin"
         title={title}
         className="block h-full w-full bg-black object-contain"
         onContextMenu={(event) => event.preventDefault()}

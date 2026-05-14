@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useChat } from '../hooks/useChat';
 import ChatMessage from './ChatMessage';
 import AppIcon from './AppIcon';
-import { useLectureSummaryMutation } from '../api/chatQueries';
+
 
 const starterFallback = [
   'Summarize this lecture',
@@ -11,136 +11,7 @@ const starterFallback = [
   'Explain the hardest concept simply',
 ];
 
-function renderSummary(text) {
-  if (!text) return null;
-  return text.split('\n').map((line, index) => {
-    const trimmed = line.trim();
-    if (!trimmed) return <div key={index} className="h-2" />;
-    if (trimmed.startsWith('## ')) return <h2 key={index} className="mb-2 mt-5 text-lg font-extrabold text-accent">{trimmed.slice(3)}</h2>;
-    if (trimmed.startsWith('# ')) return <h1 key={index} className="mb-3 text-xl font-black text-white">{trimmed.slice(2)}</h1>;
-    if (trimmed.startsWith('- ')) return <p key={index} className="pl-4 text-sm leading-7 text-slate-300">• {trimmed.slice(2)}</p>;
-    return <p key={index} className="text-sm leading-7 text-slate-300">{trimmed}</p>;
-  });
-}
-
-async function downloadSummaryPDF(summary, title) {
-  const { jsPDF } = await import('jspdf');
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  const safeTitle = (title || 'Lecture Summary').replace(/[^\x00-\x7F]/g, '').slice(0, 80);
-  const lines = doc.splitTextToSize(summary.replace(/[^\x00-\x7F]/g, ''), 174);
-
-  doc.setFillColor(232, 87, 42);
-  doc.rect(0, 0, 210, 14, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(11);
-  doc.text('SheryAI - AI Lecture Summary', 18, 9.5);
-
-  doc.setTextColor(20, 20, 20);
-  doc.setFontSize(15);
-  doc.text(safeTitle, 18, 26);
-  doc.setFontSize(10);
-  let y = 38;
-  lines.forEach((line) => {
-    if (y > 282) {
-      doc.addPage();
-      y = 18;
-    }
-    doc.text(line, 18, y);
-    y += 5.5;
-  });
-  doc.save(`SheryAI_Summary_${safeTitle.replace(/\s+/g, '_')}.pdf`);
-}
-
-function SummaryModal({ lessonId, lessonTitle, onClose }) {
-  const [type, setType] = useState('full');
-  const [summary, setSummary] = useState('');
-  const [loading, setLoading] = useState(true);
-  const summaryMutation = useLectureSummaryMutation();
-
-  const fetchSummary = async (nextType) => {
-    setType(nextType);
-    setLoading(true);
-    setSummary('');
-    try {
-      const data = await summaryMutation.mutateAsync({ lessonId, type: nextType });
-      setSummary(data.summary || 'No summary available.');
-    } catch {
-      setSummary('Failed to generate summary.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchSummary('full');
-  }, [lessonId]);
-
-  return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 p-6 backdrop-blur" onClick={onClose}>
-      <section
-        className="flex max-h-[88vh] w-full max-w-[680px] flex-col overflow-hidden rounded-3xl border border-[#1e1e1e] bg-[#0e0e0e] shadow-[0_30px_100px_rgba(0,0,0,0.8)]"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header className="border-b border-[#1a1a1a] px-6 pb-4 pt-5">
-          <div className="mb-4 flex items-start justify-between">
-            <div>
-              <div className="mb-1 flex items-center gap-2.5">
-                <AppIcon name="file" size={22} className="text-accent" />
-                <h3 className="text-lg font-extrabold text-white">Lecture Summary</h3>
-              </div>
-              {lessonTitle && (
-                <p className="text-xs text-muted">
-                  <AppIcon name="book" size={13} /> {lessonTitle}
-                </p>
-              )}
-            </div>
-            <button type="button" onClick={onClose} aria-label="Close summary" className="rounded-lg border border-[#222] px-2.5 py-1 text-muted">
-              <AppIcon name="x" size={16} />
-            </button>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex gap-2">
-              {[
-                ['full', 'Full Lecture'],
-                ['last5min', 'Last 5 Min'],
-              ].map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => fetchSummary(value)}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
-                    type === value ? 'border-accent-border bg-accent-soft text-accent' : 'border-[#222] bg-[#111] text-muted'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              disabled={!summary || loading}
-              onClick={() => downloadSummaryPDF(summary, lessonTitle)}
-              className="rounded-[10px] bg-accent-soft px-4 py-2 text-xs font-bold text-accent disabled:bg-[#1a1a1a] disabled:text-[#444]"
-            >
-              Download PDF
-            </button>
-          </div>
-        </header>
-
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          {loading ? (
-            <div className="flex flex-col items-center justify-center gap-4 py-16">
-              <AppIcon name="loader" size={42} className="animate-spin text-accent" />
-              <p className="text-sm text-muted">Generating your summary with AI...</p>
-            </div>
-          ) : (
-            <div>{renderSummary(summary)}</div>
-          )}
-        </div>
-      </section>
-    </div>
-  );
-}
+import SummaryPdfModal from './SummaryPdfModal';
 
 export default function ChatPanel({ lessonId, lesson, onSeek, getVideoTime }) {
   const { messages, isStreaming, currentStreamText, followUps, error, sendMessage, stopStreaming, clearSession } = useChat(lessonId);
@@ -285,7 +156,7 @@ export default function ChatPanel({ lessonId, lesson, onSeek, getVideoTime }) {
         <p className="mt-1.5 hidden text-center text-[11px] text-muted sm:block">Enter to send. Shift+Enter for new line.</p>
       </footer>
 
-      {showSummary && <SummaryModal lessonId={lessonId} lessonTitle={lesson?.title} onClose={() => setShowSummary(false)} />}
+      {showSummary && <SummaryPdfModal lessonId={lessonId} lessonTitle={lesson?.title} onClose={() => setShowSummary(false)} />}
     </div>
   );
 }
